@@ -1,6 +1,7 @@
 """
 OCR Engine Module for Form Extraction.
-Handles text extraction, checkbox detection, and signature detection.
+Handles text extraction with TrOCR + line segmentation, checkbox detection, and signature detection.
+Maintains Tesseract as fallback for compatibility.
 """
 
 import cv2
@@ -57,29 +58,92 @@ class OCRResult:
     checkboxes: List[Checkbox]
     has_signature: bool
     average_confidence: float
+    ocr_engine_used: str = "tesseract"  # 'trocr' or 'tesseract'
 
 
 class OCREngine:
-    """OCR Engine using Tesseract for text extraction."""
+    """
+    OCR Engine with TrOCR + Line Segmentation and Tesseract fallback.
     
-    def __init__(self, lang: str = "eng", config: str = "--psm 6"):
+    Uses SSD-based line segmentation to split documents into lines,
+    then processes each line with TrOCR for high-accuracy recognition.
+    Falls back to Tesseract if TrOCR is unavailable.
+    """
+    
+    def __init__(
+        self,
+        lang: str = "eng",
+        config: str = "--psm 6",
+        use_trocr: bool = None,
+        use_tesseract_fallback: bool = True
+    ):
         """
         Initialize OCR Engine.
         
         Args:
             lang: Language for OCR (default: English)
             config: Tesseract configuration string
+            use_trocr: Whether to use TrOCR (default: from config)
+            use_tesseract_fallback: Whether to fallback to Tesseract if TrOCR fails
         """
         self.lang = lang
         self.config = config
+        self.use_tesseract_fallback = use_tesseract_fallback
+        
+        # Determine if TrOCR should be used
+        if use_trocr is None:
+            self.use_trocr = getattr(Config, 'USE_TROCR', True)
+        else:
+            self.use_trocr = use_trocr
         
         # Set Tesseract path if configured
         if Config.TESSERACT_PATH:
             pytesseract.pytesseract.tesseract_cmd = Config.TESSERACT_PATH
+        
+        # Lazy-loaded TrOCR components
+        self._trocr_engine = None
+        self._line_segmentor = None
+        self._trocr_initialized = False
+        self._trocr_available = None
+    
+    def _init_trocr(self) -> bool:
+        """Initialize TrOCR engine and line segmentor."""
+        if self._trocr_initialized:
+            return self._trocr_available
+        
+        self._trocr_initialized = True
+        
+        if not self.use_trocr:
+            self._trocr_available = False
+            return False
+        
+        try:
+            from modules.line_segmentor import SSDLineSegmentor
+            from modules.trocr_engine import TrOCREngine as TrOCR
+            
+            self._line_segmentor = SSDLineSegmentor(
+                min_line_height=10,
+                max_line_height=200,
+                min_line_width=50,
+                padding=5
+            )
+            
+            self._trocr_engine = TrOCR()
+            self._trocr_engine._ensure_initialized()
+            
+            print("TrOCR with line segmentation initialized successfully")
+            self._trocr_available = True
+            return True
+            
+        except Exception as e:
+            print(f"TrOCR initialization failed: {e}")
+            print("Falling back to Tesseract OCR")
+            self._trocr_available = False
+            return False
     
     def extract_text(self, image: np.ndarray) -> str:
         """
-        Extract full text from image.
+        Extract full text from image using TrOCR or Tesseract.
         
         Args:
             image: Input image (grayscale or color)
@@ -87,12 +151,59 @@ class OCREngine:
         Returns:
             Extracted text as string
         """
+        # Try TrOCR first
+        if self._init_trocr():
+            try:
+                text, _ = self._extract_text_trocr(image)
+                return text
+            except Exception as e:
+                print(f"TrOCR extraction failed: {e}")
+        
+        # Fallback to Tesseract
+        if self.use_tesseract_fallback:
+            return self._extract_text_tesseract(image)
+        
+        return ""
+    
+    def _extract_text_tesseract(self, image: np.ndarray) -> str:
+        """Extract text using Tesseract OCR."""
         text = pytesseract.image_to_string(image, lang=self.lang, config=self.config)
         return text.strip()
     
+    def _extract_text_trocr(self, image: np.ndarray) -> Tuple[str, float]:
+        """
+        Extract text using TrOCR with line segmentation.
+        
+        Args:
+            image: Input image
+            
+        Returns:
+            Tuple of (extracted_text, average_confidence)
+        """
+        # Segment into lines
+        line_segments = self._line_segmentor.segment_lines(image)
+        
+        if not line_segments:
+            return "", 0.0
+        
+        # Extract just the images for batch processing
+        line_images = [img for img, _ in line_segments]
+        
+        # Recognize all lines in batch
+        results = self._trocr_engine.recognize_lines_batch(line_images)
+        
+        # Aggregate results
+        texts = [r.text for r in results if r.text]
+        confidences = [r.confidence for r in results]
+        
+        full_text = "\n".join(texts)
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+        
+        return full_text, avg_confidence
+    
     def extract_with_boxes(self, image: np.ndarray) -> List[TextBox]:
         """
-        Extract text with bounding box positions.
+        Extract text with bounding box positions using TrOCR or Tesseract.
         
         Args:
             image: Input image
@@ -100,7 +211,21 @@ class OCREngine:
         Returns:
             List of TextBox objects with position data
         """
-        # Get detailed OCR data
+        # Try TrOCR first
+        if self._init_trocr():
+            try:
+                return self._extract_with_boxes_trocr(image)
+            except Exception as e:
+                print(f"TrOCR box extraction failed: {e}")
+        
+        # Fallback to Tesseract
+        if self.use_tesseract_fallback:
+            return self._extract_with_boxes_tesseract(image)
+        
+        return []
+    
+    def _extract_with_boxes_tesseract(self, image: np.ndarray) -> List[TextBox]:
+        """Extract text with boxes using Tesseract."""
         data = pytesseract.image_to_data(
             image, lang=self.lang, config=self.config,
             output_type=pytesseract.Output.DICT
@@ -113,7 +238,6 @@ class OCREngine:
             text = data['text'][i].strip()
             conf = float(data['conf'][i])
             
-            # Skip empty text or low confidence
             if not text or conf < 0:
                 continue
             
@@ -123,8 +247,42 @@ class OCREngine:
                 y=data['top'][i],
                 width=data['width'][i],
                 height=data['height'][i],
-                confidence=conf / 100.0  # Convert to 0-1 scale
+                confidence=conf / 100.0
             ))
+        
+        return text_boxes
+    
+    def _extract_with_boxes_trocr(self, image: np.ndarray) -> List[TextBox]:
+        """
+        Extract text with bounding boxes using TrOCR.
+        
+        Returns line-level text boxes (not word-level like Tesseract).
+        """
+        # Segment into lines
+        line_segments = self._line_segmentor.segment_lines(image)
+        
+        if not line_segments:
+            return []
+        
+        # Extract images and boxes
+        line_images = [img for img, _ in line_segments]
+        line_boxes = [box for _, box in line_segments]
+        
+        # Recognize all lines
+        results = self._trocr_engine.recognize_lines_batch(line_images)
+        
+        # Create TextBox objects with line positions
+        text_boxes = []
+        for result, box in zip(results, line_boxes):
+            if result.text:
+                text_boxes.append(TextBox(
+                    text=result.text,
+                    x=box.x,
+                    y=box.y,
+                    width=box.width,
+                    height=box.height,
+                    confidence=result.confidence
+                ))
         
         return text_boxes
     
@@ -234,22 +392,43 @@ class OCREngine:
         """
         Complete OCR processing of an image.
         
+        Uses TrOCR with line segmentation for text extraction,
+        with Tesseract as fallback.
+        
         Args:
             image: Input image
             
         Returns:
             OCRResult with all extracted data
         """
-        # Extract text with positions
-        text_boxes = self.extract_with_boxes(image)
+        ocr_engine_used = "tesseract"
         
-        # Get full text
-        full_text = self.extract_text(image)
+        # Try TrOCR first
+        if self._init_trocr():
+            try:
+                # Use TrOCR for text extraction
+                text_boxes = self._extract_with_boxes_trocr(image)
+                full_text = "\n".join(tb.text for tb in text_boxes)
+                ocr_engine_used = "trocr"
+            except Exception as e:
+                print(f"TrOCR processing failed: {e}")
+                text_boxes = None
+        else:
+            text_boxes = None
         
-        # Detect checkboxes
+        # Fallback to Tesseract
+        if text_boxes is None and self.use_tesseract_fallback:
+            text_boxes = self._extract_with_boxes_tesseract(image)
+            full_text = self._extract_text_tesseract(image)
+            ocr_engine_used = "tesseract"
+        elif text_boxes is None:
+            text_boxes = []
+            full_text = ""
+        
+        # Detect checkboxes (always uses OpenCV)
         checkboxes = self.detect_checkboxes(image)
         
-        # Detect signature
+        # Detect signature (always uses OpenCV)
         has_signature = self.detect_signature(image)
         
         # Calculate average confidence
@@ -263,5 +442,6 @@ class OCREngine:
             text_boxes=text_boxes,
             checkboxes=checkboxes,
             has_signature=has_signature,
-            average_confidence=avg_conf
+            average_confidence=avg_conf,
+            ocr_engine_used=ocr_engine_used
         )

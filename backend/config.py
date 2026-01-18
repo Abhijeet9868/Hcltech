@@ -26,6 +26,20 @@ class Config:
     OCR_LANGUAGE = "eng"
     OCR_CONFIG = "--psm 6"  # Assume uniform block of text
     
+    # TrOCR Configuration
+    USE_TROCR = os.getenv("USE_TROCR", "true").lower() == "true"
+    TROCR_MODEL = os.getenv("TROCR_MODEL", "microsoft/trocr-base-handwritten")
+    TROCR_DEVICE = os.getenv("TROCR_DEVICE", "auto")  # auto, cuda, cpu
+    TROCR_BATCH_SIZE = int(os.getenv("TROCR_BATCH_SIZE", "8"))
+    
+    # Line Segmentation Configuration
+    LINE_DETECTION_CONFIDENCE = float(os.getenv("LINE_DETECTION_CONFIDENCE", "0.5"))
+    USE_SSD_LINE_DETECTION = os.getenv("USE_SSD_LINE_DETECTION", "false").lower() == "true"
+    
+    # Fallback Configuration
+    USE_TESSERACT_FALLBACK = os.getenv("USE_TESSERACT_FALLBACK", "true").lower() == "true"
+    
     # Confidence Thresholds
     HIGH_CONFIDENCE_THRESHOLD = 0.8
     LOW_CONFIDENCE_THRESHOLD = 0.6
+
