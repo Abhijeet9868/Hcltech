@@ -1,0 +1,45 @@
+Hackathon Use Case: Information Extraction from f D F
+Scanned User-Filled Forms
+
+1. Problem Statement
+
+Organizations across domains such as banking, travel, and employment rely heavily on
+user-filled forms for onboarding and operational workflows. These forms are often scanned
+images or photos submitted by users, making automated processing challenging due to
+handwritten text, varying layouts, inconsistent structures, 5, and noise. Manual data entry is
+slow, error-prone, and costly. —
+
+This use case focuses on building an Information Extraction System that can
+automatically extract structured data from scanned application forms (e.g., banking
+applications, travel agency forms, or employment forms), enabling faster processing a and
+integration with downstream systems.
+
+2. Objective
+Build an end-to-end GenAl-powered system capable of:—~
+
+e Reading scanned or uploaded user-filled fornrs~
+
+e Extracting key information (textual fields, checkboxes, signatures, tables, IDs)
+
+e Validating and normalizing the extracted data®
+
+e Returning structured output (JSON or form-specific schema) *
+
+e Supporting plug-and-play extraction for multiple form types ¢
+
+© Self service portal with user interface that can provided to end users and it should
+have the capability to generate user based report. —
+
+3. Scope of the Solution
+The solution will:
+
+e Accept input as scanned image/PDF
+
+¢ Perform OCR + intelligent layout detection ~
+
+e Use LLM-based or rule-based extraction to populate structured output—~
+e Consider any one form categories of your choice; —
+
+° Banking.application form, Travel booking/visa form, Employment/HR
+onboarding form
+

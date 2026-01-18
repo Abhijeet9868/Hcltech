@@ -275,3 +275,49 @@ Correct any OCR errors you notice by comparing with the image.
 {self.BANKING_FORM_PROMPT}"""
         
         return self.extract_fields(image, custom_prompt=context_prompt)
+    
+    def generate_summary(self, extracted_fields: Dict[str, Any]) -> str:
+        """
+        Generate a summary of the extracted form data using LLM.
+        
+        Args:
+            extracted_fields: Dictionary of extracted fields
+            
+        Returns:
+            Generated summary text
+        """
+        # Create a text representation of the fields
+        if not extracted_fields:
+            return "No data extracted from this form to summarize."
+            
+        fields_text = json.dumps(extracted_fields, indent=2)
+        print(f"LLM Summary Input Fields: {fields_text}")
+        
+        prompt = f"""You are an expert banking analyst. Generate a professional summary based *strictly* on the following extracted form data.
+        
+        Extracted Data:
+        {fields_text}
+        
+        Instructions:
+        1. Identify the applicant's name and the specific type of form/application.
+        2. Summarize key information found in the data (e.g., contact details, employment, financial figures).
+        3. Do NOT hallucinate information not present in the data.
+        4. If important fields (like Name) are missing, explicitly mention that they were not extracted.
+        5. Format as a concise paragraph suitable for a banker to read quickly.
+        """
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that summarizes form data."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500,
+                temperature=0.3
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            return f"Error generating summary: {str(e)}"

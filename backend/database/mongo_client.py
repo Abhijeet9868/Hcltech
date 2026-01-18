@@ -82,18 +82,23 @@ class MongoDBClient:
         except Exception:
             return None
     
-    def get_all_extractions(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_all_extractions(self, limit: int = 100, exclude_status: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Retrieve all extractions, most recent first.
         
         Args:
             limit: Maximum number of results
+            exclude_status: Status to exclude (e.g., 'reviewed')
             
         Returns:
             List of extraction documents
         """
+        query = {}
+        if exclude_status:
+            query['status'] = {'$ne': exclude_status}
+            
         results = list(
-            self.extractions.find()
+            self.extractions.find(query)
             .sort('upload_date', -1)
             .limit(limit)
         )
@@ -120,7 +125,7 @@ class MongoDBClient:
                 {'_id': ObjectId(doc_id)},
                 {'$set': update_data}
             )
-            return result.modified_count > 0
+            return result.matched_count > 0
         except Exception:
             return False
     

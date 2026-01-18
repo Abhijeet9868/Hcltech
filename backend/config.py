@@ -27,7 +27,9 @@ class Config:
     OCR_CONFIG = "--psm 6"  # Assume uniform block of text
     
     # TrOCR Configuration
-    USE_TROCR = os.getenv("USE_TROCR", "true").lower() == "true"
+    # Note: TrOCR is slow on CPU (~10-20s per line). Enable when GPU is available.
+    # Set to "auto" to enable only when CUDA is available
+    USE_TROCR = os.getenv("USE_TROCR", "auto").lower()  # "true", "false", or "auto"
     TROCR_MODEL = os.getenv("TROCR_MODEL", "microsoft/trocr-base-handwritten")
     TROCR_DEVICE = os.getenv("TROCR_DEVICE", "auto")  # auto, cuda, cpu
     TROCR_BATCH_SIZE = int(os.getenv("TROCR_BATCH_SIZE", "8"))

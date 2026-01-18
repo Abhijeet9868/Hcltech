@@ -271,7 +271,10 @@ def get_extraction_history():
         return jsonify({'error': 'Database not available'}), 503
     
     limit = request.args.get('limit', 100, type=int)
-    results = db.get_all_extractions(limit=limit)
+    exclude_reviewed = request.args.get('exclude_reviewed', 'false').lower() == 'true'
+    
+    exclude_status = 'reviewed' if exclude_reviewed else None
+    results = db.get_all_extractions(limit=limit, exclude_status=exclude_status)
     
     return jsonify({
         'total': len(results),
@@ -355,6 +358,36 @@ def get_stats():
     
     stats = db.get_extraction_stats()
     return jsonify(stats)
+
+
+@app.route('/api/results/<doc_id>/summary', methods=['POST'])
+def generate_summary(doc_id):
+    """Generate summary for an extraction."""
+    db = get_db()
+    if db is None:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    result = db.get_extraction(doc_id)
+    if result is None:
+        return jsonify({'error': 'Result not found'}), 404
+        
+    try:
+        # Prioritize raw extracted data for summary as it contains more context
+        # 'extracted_fields' or 'raw_fields' usually contain the direct LLM/OCR output
+        fields = result.get('extracted_fields') or result.get('raw_fields') or result.get('fields', {})
+        
+        print(f"Generating summary using data source with {len(fields)} keys")
+        
+        llm_extractor = LLMExtractor()
+        summary = llm_extractor.generate_summary(fields)
+        
+        # Save summary to database
+        db.update_extraction(doc_id, {'summary': summary})
+        
+        return jsonify({'summary': summary})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

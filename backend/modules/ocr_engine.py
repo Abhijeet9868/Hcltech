@@ -92,7 +92,24 @@ class OCREngine:
         
         # Determine if TrOCR should be used
         if use_trocr is None:
-            self.use_trocr = getattr(Config, 'USE_TROCR', True)
+            trocr_setting = getattr(Config, 'USE_TROCR', 'auto')
+            if trocr_setting == 'true':
+                self.use_trocr = True
+            elif trocr_setting == 'false':
+                self.use_trocr = False
+            elif trocr_setting == 'auto':
+                # Auto mode: only use TrOCR if CUDA is available (too slow on CPU)
+                try:
+                    import torch
+                    self.use_trocr = torch.cuda.is_available()
+                    if self.use_trocr:
+                        print("TrOCR: CUDA detected, enabling TrOCR")
+                    else:
+                        print("TrOCR: No CUDA, using Tesseract (TrOCR too slow on CPU)")
+                except ImportError:
+                    self.use_trocr = False
+            else:
+                self.use_trocr = False
         else:
             self.use_trocr = use_trocr
         

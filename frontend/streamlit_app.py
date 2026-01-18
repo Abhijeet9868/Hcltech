@@ -171,7 +171,7 @@ def main():
         
         page = st.radio(
             "Select a page:",
-            ["🏠 Extract New", "📊 History", "📈 Statistics"],
+            ["🏠 Extract New", "📊 History"],
             label_visibility="collapsed"
         )
         
@@ -188,8 +188,6 @@ def main():
         show_extraction_page()
     elif "📊 History" in page:
         show_history_page()
-    elif "📈 Statistics" in page:
-        show_stats_page()
 
 
 def show_extraction_page():
@@ -265,7 +263,7 @@ def show_extraction_result(result):
         )
     
     # Tabs for different views
-    tab1, tab2, tab3 = st.tabs(["📝 Fields", "⚠️ Review Needed", "🔧 Raw Data"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 Fields", "⚠️ Review Needed", "📄 Summary", "🔧 Raw Data"])
     
     with tab1:
         fields = result.get('fields', {})
@@ -342,7 +340,8 @@ def show_extraction_result(result):
                     # Update the fields in the database
                     update_data = {
                         'fields': {**result.get('fields', {}), **edited_fields},
-                        'status': 'reviewed'
+                        'status': 'reviewed',
+                        'needs_review': []  # Clear review flag
                     }
                     response = requests.put(
                         f"{API_URL}/results/{doc_id}",
@@ -355,6 +354,7 @@ def show_extraction_result(result):
                         if 'extraction_result' in st.session_state:
                             st.session_state['extraction_result']['fields'].update(edited_fields)
                             st.session_state['extraction_result']['status'] = 'reviewed'
+                            st.session_state['extraction_result']['needs_review'] = []
                         st.rerun()
                     else:
                         st.error(f"❌ Failed to save: {response.json().get('error', 'Unknown error')}")
@@ -378,6 +378,41 @@ def show_extraction_result(result):
                 st.warning(warning)
     
     with tab3:
+        st.markdown("### 📄 Form Summary")
+        
+        doc_id = result.get('_id')
+        summary = result.get('summary')
+        
+        if summary:
+            st.markdown(summary)
+            st.download_button(
+                "⬇️ Download Summary",
+                data=summary,
+                file_name=f"summary_{doc_id}.txt",
+                mime="text/plain"
+            )
+            st.divider()
+            
+        if doc_id:
+            btn_text = "🔄 Regenerate Summary" if summary else "✨ Generate Summary using AI"
+            if st.button(btn_text, key=f"gen_sum_{doc_id}"):
+                with st.spinner("Generating summary..."):
+                    try:
+                        resp = requests.post(f"{API_URL}/results/{doc_id}/summary")
+                        if resp.status_code == 200:
+                            new_summary = resp.json().get('summary')
+                            st.markdown(new_summary)
+                            if 'extraction_result' in st.session_state:
+                                st.session_state['extraction_result']['summary'] = new_summary
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to generate: {resp.json().get('error')}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        else:
+            st.warning("Save the extraction first to generate a summary.")
+
+    with tab4:
         st.json(result)
     
     # Export buttons
@@ -425,7 +460,9 @@ def show_history_page():
     st.markdown("### 📊 Extraction History")
     
     try:
-        response = requests.get(f"{API_URL}/history", timeout=10)
+        # Default to excluding reviewed items as per requirement
+        exclude_reviewed = st.checkbox("Hide Reviewed Items", value=True)
+        response = requests.get(f"{API_URL}/history?exclude_reviewed={exclude_reviewed}", timeout=10)
         
         if response.status_code == 200:
             data = response.json()
@@ -472,43 +509,7 @@ def show_history_page():
         st.error(f"Error: {str(e)}")
 
 
-def show_stats_page():
-    """Show statistics."""
-    st.markdown("### 📈 Extraction Statistics")
-    
-    try:
-        response = requests.get(f"{API_URL}/stats", timeout=10)
-        
-        if response.status_code == 200:
-            stats = response.json()
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Total Extractions", stats.get('total_extractions', 0))
-            
-            with col2:
-                st.metric("Needs Review", stats.get('needs_review_count', 0))
-            
-            with col3:
-                form_types = stats.get('form_types', {})
-                st.metric("Form Types", len(form_types))
-            
-            # Form types breakdown
-            if form_types:
-                st.markdown("---")
-                st.markdown("### Form Types Distribution")
-                df = pd.DataFrame([
-                    {'Form Type': k.replace('_', ' ').title(), 'Count': v}
-                    for k, v in form_types.items()
-                ])
-                st.bar_chart(df.set_index('Form Type'))
-        else:
-            st.error("Failed to fetch statistics")
-    except requests.exceptions.ConnectionError:
-        st.error("⚠️ Cannot connect to API. Make sure the Flask backend is running.")
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
+
 
 
 if __name__ == "__main__":
