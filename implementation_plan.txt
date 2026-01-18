@@ -1,0 +1,281 @@
+# Information Extraction from Scanned User-Filled Forms
+
+## Overview
+Build an end-to-end GenAI-powered system to extract structured data from scanned application forms with intelligent OCR and layout detection.
+
+---
+
+## Tech Stack
+
+| Component        | Technology              |
+|------------------|-------------------------|
+| Backend          | Python 3.11, Flask      |
+| Frontend         | Streamlit               |
+| Database         | MongoDB                 |
+| OCR              | Tesseract OCR 5.x       |
+| Layout Detection | OpenCV, LayoutParser    |
+| LLM              | OpenAI GPT-4 Vision     |
+
+---
+
+## Project Structure
+
+hcl-tech-matrix AI/
+├── backend/
+│   ├── app.py                     # Flask application
+│   ├── config.py                  # Configuration
+│   ├── requirements.txt           # Dependencies
+│   ├── modules/
+│   │   ├── preprocessing.py       # Image preprocessing
+│   │   ├── ocr_engine.py          # Tesseract OCR
+│   │   ├── layout_detector.py     # Layout detection
+│   │   ├── llm_extractor.py       # LLM extraction
+│   │   └── validator.py           # Validation
+│   └── database/
+│       └── mongo_client.py        # MongoDB operations
+├── frontend/
+│   └── streamlit_app.py           # Streamlit UI
+├── sample_forms/                  # Test forms
+└── README.md
+
+---
+
+## Component 1: Flask Backend
+
+[NEW] app.py
+Flask API endpoints:
+- POST /api/upload - Accept form image/PDF
+- POST /api/extract - Run extraction pipeline
+- GET /api/results/<id> - Get extraction results
+- GET /api/history - Get all extractions from MongoDB
+
+[NEW] requirements.txt
+flask==3.0.0
+flask-cors==4.0.0
+pymongo==4.6.1
+pytesseract==0.3.10
+opencv-python==4.9.0.80
+Pillow==10.2.0
+numpy==1.26.3
+pdf2image==1.16.3
+layoutparser==0.3.4
+openai==1.10.0
+python-dotenv==1.0.0
+
+[NEW] mongo_client.py
+class MongoDBClient:
+    def __init__(self, uri="mongodb://localhost:27017"):
+        self.client = MongoClient(uri)
+        self.db = self.client["form_extraction"]
+    
+    def save_extraction(form_data) -> str  # Returns document ID
+    def get_extraction(doc_id) -> dict
+    def get_all_extractions() -> List[dict]
+    def update_extraction(doc_id, data) -> bool
+
+---
+
+## Component 2: OCR Engine (Key Focus)
+
+[NEW] ocr_engine.py
+
+class OCREngine:
+    def extract_text(image) -> OCRResult
+        # Full text with Tesseract
+    
+    def extract_with_boxes(image) -> List[TextBox]
+        # Text + bounding boxes for layout mapping
+    
+    def detect_checkboxes(image) -> List[Checkbox]
+        # Contour analysis for checkbox detection
+    
+    def detect_signature(image) -> bool
+        # Signature presence detection
+
+Checkbox Detection Flow:
+Image -> Edge Detection -> Find Contours -> Filter Squares -> Fill > 30%? -> Checked/Unchecked
+
+---
+
+## Component 3: Layout Detection (Key Focus)
+
+[NEW] layout_detector.py
+
+class LayoutDetector:
+    def detect_regions(image) -> List[Region]
+        # Form section identification
+    
+    def identify_key_value_pairs(ocr_data) -> List[KeyValuePair]
+        # Match labels to values using spatial proximity
+    
+    def classify_sections(regions) -> Dict[str, Region]
+        # Group: Personal Info, Address, Employment, etc.
+
+Key-Value Detection Logic:
+1. Find text ending with ':' (labels)
+2. Locate nearest text to the right or below (values)
+3. Match pairs using spatial proximity
+
+---
+
+## Component 4: Data Validation & Verification Layer
+
+[NEW] validator.py
+
+How the system verifies extracted data is correct:
+
+LAYER 1: OCR Confidence
+- Tesseract Output -> Confidence > 80%? -> High Confidence / Flag for Review
+
+LAYER 2: Format Validation
+- Extracted Value -> Matches Pattern? -> Valid Format / Format Error
+
+LAYER 3: Cross-Field Validation
+- All Fields -> Logical Consistency? -> Consistent / Inconsistency Alert
+
+LAYER 4: Human Review
+- Low Confidence Fields -> Show in UI -> User Correction
+
+Validation Rules:
+
+| Field Type | Validation Rule                    | Example           |
+|------------|-----------------------------------|-------------------|
+| Name       | Only letters, spaces, dots         | John Doe          |
+| Date       | Valid date format, not future DOB  | 14/07/1992        |
+| Phone      | 10-12 digits, valid country code   | +91 9876543210    |
+| Email      | Standard email regex pattern       | john@email.com    |
+| PAN        | Format: ABCDE1234F                 | ABCPK1234F        |
+| Aadhaar    | Exactly 12 digits                  | 123456789012      |
+| PIN Code   | 6 digits for India                 | 560001            |
+
+Validator Implementation:
+class FieldValidator:
+    def validate_and_score(field_name, value, ocr_confidence):
+        # Step 1: Check OCR confidence
+        if ocr_confidence < 0.6:
+            return {"valid": False, "reason": "Low OCR confidence", "needs_review": True}
+        
+        # Step 2: Format validation
+        if field_name == "email":
+            is_valid = re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', value)
+        elif field_name == "phone":
+            is_valid = re.match(r'^[\+]?[\d\s\-]{10,15}$', value)
+        elif field_name == "date":
+            is_valid = parse_date(value) is not None
+        elif field_name == "pan":
+            is_valid = re.match(r'^[A-Z]{5}[0-9]{4}[A-Z]$', value)
+        
+        # Step 3: Return validation result with confidence
+        return {
+            "valid": is_valid,
+            "normalized_value": normalize(value),
+            "confidence": calculate_final_confidence(ocr_confidence, is_valid),
+            "needs_review": ocr_confidence < 0.8 or not is_valid
+        }
+    
+    def cross_validate(extracted_fields):
+        # Check logical consistency between fields
+        errors = []
+        
+        # Age vs DOB check
+        if 'age' in extracted_fields and 'dob' in extracted_fields:
+            calculated_age = calculate_age(extracted_fields['dob'])
+            if abs(calculated_age - int(extracted_fields['age'])) > 1:
+                errors.append("Age doesn't match DOB")
+        
+        return errors
+
+Confidence Score Calculation:
+def calculate_final_confidence(ocr_conf, format_valid, llm_conf):
+    weights = {"ocr": 0.3, "format": 0.3, "llm": 0.4}
+    
+    score = (
+        ocr_conf * weights["ocr"] +
+        (1.0 if format_valid else 0.5) * weights["format"] +
+        llm_conf * weights["llm"]
+    )
+    return round(score, 2)
+
+Human Review Interface (Streamlit):
+- Fields with confidence < 80% highlighted in YELLOW
+- Fields with confidence < 60% highlighted in RED
+- Side-by-side view: Original image region | Extracted value
+- User can edit/correct values directly
+- Corrections saved to improve future extractions
+
+---
+
+## Component 5: Streamlit Frontend
+
+[NEW] streamlit_app.py
+
+UI Features:
+- File uploader (drag & drop)
+- Side-by-side: Original image | Extracted data
+- Real-time processing progress
+- Bounding box visualization toggle
+- Confidence scores display
+- Export: JSON, CSV download
+- Extraction history from MongoDB
+
+# Streamlit UI Structure
+st.title("Form Data Extractor")
+uploaded_file = st.file_uploader("Upload Form", type=['jpg', 'png', 'pdf'])
+
+col1, col2 = st.columns(2)
+with col1:
+    st.image(uploaded_file)  # Original form
+with col2:
+    st.json(extracted_data)  # Extracted fields
+
+st.download_button("Download JSON", json_data)
+
+---
+
+## Component 6: MongoDB Schema
+
+{
+  "_id": "ObjectId",
+  "filename": "form_001.jpg",
+  "upload_date": "2026-01-18T12:00:00Z",
+  "form_type": "banking_application",
+  "extracted_fields": {
+    "name": "John Doe",
+    "dob": "1992-07-14",
+    "phone": "+1 234 567 890",
+    "address": "123 Main St, City"
+  },
+  "confidence_scores": {
+    "name": 0.95,
+    "dob": 0.88
+  },
+  "processing_time_ms": 2340,
+  "status": "completed"
+}
+
+---
+
+## Architecture
+
+Streamlit UI -> Upload -> Flask API -> Preprocessing -> Tesseract OCR -> Layout Detector -> LLM Extractor -> Validator -> MongoDB -> Results -> Streamlit UI
+
+---
+
+## Verification Plan
+
+### Run Tests
+# Start MongoDB
+mongod --dbpath ./data/db
+
+# Start Flask backend
+cd backend && python app.py
+
+# Start Streamlit frontend
+cd frontend && streamlit run streamlit_app.py
+
+### Manual Verification
+1. Upload sample banking form via Streamlit
+2. Verify OCR extracts text correctly
+3. Check layout detection identifies key-value pairs
+4. Confirm data saved to MongoDB
+5. Test export functionality (JSON/CSV)

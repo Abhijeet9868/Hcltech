@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Environment files
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Uploads and outputs
+uploads/
+outputs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# MongoDB data
+data/
+
+# Tesseract models
+tessdata/
+
+# Byte-compiled files
+*.pyc
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
